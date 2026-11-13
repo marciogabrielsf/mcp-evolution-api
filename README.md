@@ -93,10 +93,10 @@ EVOLUTION_API_KEY=sua-chave-api
 # ID da instância WhatsApp na Evolution API
 EVOLUTION_API_INSTANCE=instancia-padrao
 
-# Habilitar servidor WebSocket (opcional)
+# Habilitar servidor HTTP do MCP: rotas /mcp, /sse e WebSocket (opcional)
 ENABLE_WEBSOCKET=true
 
-# Porta para o servidor WebSocket (opcional)
+# Porta do servidor HTTP do MCP (opcional)
 PORT=3000
 ```
 
@@ -127,13 +127,13 @@ npm run docker:run
 
 ## Métodos de Conexão
 
-Este servidor MCP suporta dois métodos de conexão:
+Este servidor MCP suporta dois modos de conexão:
 
 ### 1. STDIO (Padrão)
 
 Usado principalmente para conexões locais e integração com ferramentas como Claude Desktop.
 
-### 2. WebSocket
+### 2. HTTP (remoto)
 
 Ideal para conexões remotas ou quando o servidor está em um contêiner Docker. Para habilitar:
 
@@ -141,6 +141,17 @@ Ideal para conexões remotas ou quando o servidor está em um contêiner Docker.
 ENABLE_WEBSOCKET=true
 PORT=3000 # porta opcional, padrão é 3000
 ```
+
+Rotas disponíveis:
+
+| Rota | Transporte | Uso |
+|------|------------|-----|
+| `POST /mcp` | Streamable HTTP (padrão atual do MCP) | n8n (HTTP Streamable), Claude, Cursor, VS Code |
+| `GET /sse` + `POST /messages` | SSE (legado) | Clientes antigos, n8n (Server Sent Events) |
+| `ws://` em qualquer caminho | WebSocket | Clientes MCP via WebSocket |
+| `GET /` ou `GET /health` | — | Healthcheck |
+
+Exemplo de URL: `https://seu-servidor/mcp`.
 
 ## Integração com Ferramentas
 

@@ -3,9 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { config } from "./config.js";
 import { EvolutionApiService } from "./services/evolutionApiService.js";
-import { WebSocketServerTransport } from "./transports/websocketServerTransport.js";
-import * as http from "http";
-import { WebSocketServer } from "ws";
+import { startMcpHttpServer } from "./httpServer.js";
 import "dotenv/config";
 
 // Inicializa o serviço da Evolution API
@@ -746,51 +744,28 @@ export async function startServer() {
   }
 }
 
-// Inicia o servidor usando WebSocket
-export async function startWebSocketServer(port: number = 3000) {
-  console.error(`Iniciando servidor MCP para Evolution API via WebSocket na porta ${port}...`);
+// Inicia o servidor HTTP com as rotas MCP (/mcp, /sse e WebSocket)
+export async function startHttpServer(port: number = 3000) {
+  console.error(`Iniciando servidor MCP HTTP para Evolution API na porta ${port}...`);
   try {
-    // Responde requisições HTTP comuns (ex.: healthcheck) sem travar a conexão
-    const httpServer = http.createServer((_req, res) => {
-      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("MCP Evolution API WebSocket server");
-    });
-    const wss = new WebSocketServer({ server: httpServer });
-
-    wss.on("connection", (socket) => {
-      const server = createMcpServer();
-      const transport = new WebSocketServerTransport(socket);
-      server.connect(transport).catch((error) => {
-        console.error("Erro ao conectar cliente WebSocket:", error);
-        socket.close();
-      });
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      httpServer.once("error", reject);
-      httpServer.listen(port, () => {
-        httpServer.off("error", reject);
-        resolve();
-      });
-    });
-    console.error(`Servidor MCP WebSocket iniciado com sucesso na porta ${port}!`);
-
-    return { httpServer, wss };
+    const result = await startMcpHttpServer(port, createMcpServer);
+    console.error(`Servidor MCP HTTP iniciado na porta ${port}! Rotas: POST /mcp, GET /sse, WebSocket.`);
+    return result;
   } catch (error) {
-    console.error("Erro ao iniciar servidor MCP WebSocket:", error);
+    console.error("Erro ao iniciar servidor MCP HTTP:", error);
     throw error;
   }
 }
 
 // Se este arquivo for executado diretamente, inicia o servidor
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // Verifica se o WebSocket está habilitado
-  const enableWebSocket = process.env.ENABLE_WEBSOCKET === 'true';
+  // ENABLE_WEBSOCKET habilita o servidor HTTP (rotas /mcp, /sse e WebSocket)
+  const enableHttp = process.env.ENABLE_WEBSOCKET === 'true';
   const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
   
   startServer().catch(console.error);
   
-  if (enableWebSocket) {
-    startWebSocketServer(port).catch(console.error);
+  if (enableHttp) {
+    startHttpServer(port).catch(console.error);
   }
 } 

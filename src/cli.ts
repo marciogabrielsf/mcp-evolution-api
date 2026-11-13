@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { startServer, startWebSocketServer } from './index.js';
+import { startServer, startHttpServer } from './index.js';
 import { config } from './config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -19,17 +19,17 @@ console.error(`
 `);
 
 // Inicia os servidores
-const enableWebSocket = process.env.ENABLE_WEBSOCKET === 'true';
+// ENABLE_WEBSOCKET habilita o servidor HTTP (rotas /mcp, /sse e WebSocket)
+const enableHttp = process.env.ENABLE_WEBSOCKET === 'true';
 
 async function init() {
   try {
     // Sempre inicia o servidor STDIO
     await startServer();
     
-    // Inicia o servidor WebSocket se habilitado
-    if (enableWebSocket) {
+    if (enableHttp) {
       const port = process.env.PORT || 3000;
-      await startWebSocketServer(Number(port));
+      await startHttpServer(Number(port));
     }
   } catch (error) {
     console.error('Erro ao iniciar servidores MCP:', error);
