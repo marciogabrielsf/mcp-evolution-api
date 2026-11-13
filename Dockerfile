@@ -1,20 +1,21 @@
-FROM node:18-alpine
-
+# Etapa 1: compila o TypeScript
+FROM node:20-alpine AS build
 WORKDIR /app
-
-# Copiar arquivos de dependências
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci
+COPY . .
+RUN npm run build
 
-# Copiar arquivos de código compilado
-COPY dist ./dist
-COPY .env.example ./.env.example
-
-# Definir variáveis de ambiente padrão
+# Etapa 2: imagem final
+FROM node:20-alpine
+WORKDIR /app
 ENV NODE_ENV=production
 
-# Expor a porta para WebSocket (opcional, usada se WebSocket estiver habilitado)
-EXPOSE 3000
+COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Comando para iniciar o servidor
-CMD ["node", "dist/index.js"] 
+COPY --from=build /app/dist ./dist
+COPY .env.example ./.env.example
+
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
