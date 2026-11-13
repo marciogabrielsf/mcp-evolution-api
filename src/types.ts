@@ -206,13 +206,32 @@ export interface Contact {
 }
 
 export interface Chat {
-  id: string;
+  id: string | null;
   remoteJid: string;
   pushName?: string | null;
   profilePicUrl?: string | null;
-  unreadCount?: number;
-  lastMessage?: Record<string, unknown>;
+  unreadCount?: number | null;
+  lastMessage?: Partial<StoredMessage>;
   updatedAt?: string;
+}
+
+// Mensagem como armazenada pela Evolution (retorno de findChats/findMessages)
+export interface StoredMessage {
+  id: string;
+  key: MessageKey & { participant?: string };
+  pushName?: string | null;
+  messageType: string;
+  message: Record<string, any>;
+  messageTimestamp: number;
+}
+
+export interface FindMessagesResponse {
+  messages: {
+    total: number;
+    pages: number;
+    currentPage: number;
+    records: StoredMessage[];
+  };
 }
 
 // ===== PERFIL =====

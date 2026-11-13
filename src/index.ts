@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { config } from "./config.js";
 import { EvolutionApiService } from "./services/evolutionApiService.js";
+import { describeMessage, formatTimestamp } from "./messageFormat.js";
 import { startMcpHttpServer } from "./httpServer.js";
 import "dotenv/config";
 
@@ -13,6 +14,12 @@ const evolutionService = new EvolutionApiService();
 function toJid(value: string): string {
   return value.includes("@") ? value : `${value.replace(/\D/g, "")}@s.whatsapp.net`;
 }
+
+const RECIPIENT_DESCRIPTION =
+  "Destinatário: número no formato internacional (ex: 5511999999999) ou o remoteJid da conversa retornado por listChats (ex: ...@s.whatsapp.net, ...@lid ou ...@g.us)";
+
+const REMOTE_JID_DESCRIPTION =
+  "Conversa: use o remoteJid retornado por listChats (ex: 5511999999999@s.whatsapp.net, ...@lid ou 1203...@g.us)";
 
 // Cria um servidor MCP com todas as ferramentas e recursos registrados.
 // O McpServer só mantém um transporte ativo por vez, então cada transporte
@@ -27,6 +34,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para verificar o status da API
   server.tool("getApiStatus",
+    "Verifica se a Evolution API está online e retorna a versão.",
     {},
     async () => {
       try {
@@ -52,6 +60,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para verificar status da instância
   server.tool("getInstanceStatus",
+    "Retorna o status de conexão da instância do WhatsApp (open = conectada).",
     {},
     async () => {
       try {
@@ -75,6 +84,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para definir presença
   server.tool("setPresence",
+    "Define a presença global da instância do WhatsApp (online, offline etc.).",
     { 
       presence: z.enum(["available", "unavailable", "composing", "recording", "paused"])
         .describe("Status de presença para definir")
@@ -101,6 +111,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para logout da instância
   server.tool("logoutInstance",
+    "Desconecta a instância do WhatsApp; reconectar exige ler o QR code de novo. Use só se for pedido explicitamente.",
     {},
     async () => {
       try {
@@ -124,6 +135,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para reiniciar a instância
   server.tool("restartInstance",
+    "Reinicia a conexão da instância do WhatsApp.",
     {},
     async () => {
       try {
@@ -149,8 +161,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar mensagem de texto
   server.tool("sendTextMessage",
+    "Envia uma mensagem de texto. Para responder uma conversa, use o remoteJid dela como destinatário; para citar uma mensagem, informe options.quotedMessageId.",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional (ex: 5511999999999)"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       text: z.string().min(1).describe("Texto da mensagem a ser enviada"),
       options: z.object({
         delay: z.number().optional().describe("Atraso em milissegundos (mostra 'digitando...' durante o atraso)"),
@@ -184,8 +197,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar mídia
   server.tool("sendMedia",
+    "Envia imagem, vídeo, documento ou áudio a partir de uma URL pública, com legenda opcional.",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       url: z.string().url().describe("URL da mídia a ser enviada"),
       caption: z.string().optional().describe("Legenda para a mídia"),
       fileName: z.string().optional().describe("Nome do arquivo"),
@@ -219,8 +233,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar mensagem de áudio
   server.tool("sendAudio",
+    "Envia um áudio a partir de uma URL, como mensagem de voz (padrão) ou como arquivo.",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       url: z.string().url().describe("URL do áudio a ser enviado"),
       ptt: z.boolean().optional().describe("Se é uma mensagem de voz (Push-to-talk). Padrão: true")
     },
@@ -252,8 +267,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar sticker
   server.tool("sendSticker",
+    "Envia uma figurinha a partir da URL de uma imagem.",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       url: z.string().url().describe("URL do sticker a ser enviado")
     },
     async ({ number, url }) => {
@@ -281,8 +297,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar localização
   server.tool("sendLocation",
+    "Envia uma localização (latitude e longitude).",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       lat: z.number().describe("Latitude"),
       lng: z.number().describe("Longitude"),
       title: z.string().optional().describe("Título da localização"),
@@ -316,8 +333,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar contato
   server.tool("sendContact",
+    "Envia um cartão de contato.",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       fullName: z.string().min(1).describe("Nome completo do contato"),
       wuid: z.string().optional().describe("ID do WhatsApp do contato (só dígitos, ex: 5511999999999). Padrão: derivado do telefone"),
       phoneNumber: z.string().min(1).describe("Número de telefone do contato")
@@ -347,8 +365,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para enviar enquete
   server.tool("sendPoll",
+    "Envia uma enquete.",
     { 
-      number: z.string().min(1).describe("Número do destinatário no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       name: z.string().min(1).describe("Pergunta da enquete"),
       options: z.array(z.string()).min(2).describe("Opções de resposta"),
       multipleChoice: z.boolean().optional().describe("Permite múltiplas escolhas")
@@ -382,6 +401,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para verificar número de WhatsApp
   server.tool("checkWhatsAppNumber",
+    "Verifica se um número tem WhatsApp.",
     { 
       phone: z.string().min(1).describe("Número a ser verificado no formato internacional (ex: 5511999999999)")
     },
@@ -410,9 +430,10 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para marcar mensagem como lida
   server.tool("markMessageAsRead",
+    "Marca uma mensagem específica como lida. Para marcar a conversa inteira, use markChatAsRead.",
     { 
       messageId: z.string().min(1).describe("ID da mensagem a ser marcada como lida"),
-      remoteJid: z.string().min(1).describe("Chat da mensagem: número (ex: 5511999999999) ou JID"),
+      remoteJid: z.string().min(1).describe(REMOTE_JID_DESCRIPTION),
       fromMe: z.boolean().default(false).describe("Se a mensagem foi enviada por você")
     },
     async ({ messageId, remoteJid, fromMe }) => {
@@ -437,8 +458,9 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para arquivar chat
   server.tool("archiveChat",
+    "Arquiva ou desarquiva uma conversa.",
     { 
-      number: z.string().min(1).describe("Número no formato internacional"),
+      number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
       shouldArchive: z.boolean().default(true).describe("True para arquivar, false para desarquivar")
     },
     async ({ number, shouldArchive }) => {
@@ -465,9 +487,10 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para excluir mensagem para todos
   server.tool("deleteMessageForEveryone",
+    "Apaga uma mensagem para todos.",
     { 
       messageId: z.string().min(1).describe("ID da mensagem a ser excluída"),
-      remoteJid: z.string().min(1).describe("Chat da mensagem: número (ex: 5511999999999) ou JID"),
+      remoteJid: z.string().min(1).describe(REMOTE_JID_DESCRIPTION),
       fromMe: z.boolean().default(true).describe("Se a mensagem foi enviada por você")
     },
     async ({ messageId, remoteJid, fromMe }) => {
@@ -490,10 +513,202 @@ export function createMcpServer(): McpServer {
     }
   );
 
+  // Adiciona ferramenta para listar conversas
+  server.tool("listChats",
+    "Lista as conversas mais recentes com a última mensagem de cada uma. Use onlyAwaitingReply=true para encontrar conversas que precisam de resposta.",
+    {
+      onlyAwaitingReply: z.boolean().default(false).describe("Só conversas cuja última mensagem veio do contato, ou seja, aguardando resposta"),
+      search: z.string().optional().describe("Filtra pelo nome do contato/grupo ou pelo número"),
+      limit: z.number().int().min(1).max(100).default(20).describe("Quantidade máxima de conversas (mais recentes primeiro)"),
+      offset: z.number().int().min(0).default(0).describe("Quantas conversas pular, para paginação")
+    },
+    async ({ onlyAwaitingReply, search, limit, offset }) => {
+      try {
+        // A Evolution não filtra conversas por nome nem por remetente da última mensagem,
+        // então busca todas (já ordenadas pela mais recente) e filtra aqui
+        const term = search?.toLowerCase();
+        const chats = (await evolutionService.fetchChats())
+          .filter((chat) => chat.remoteJid !== "status@broadcast")
+          .filter((chat) => !onlyAwaitingReply || (chat.lastMessage !== undefined && !chat.lastMessage.key?.fromMe))
+          .filter((chat) => !term || (chat.pushName ?? "").toLowerCase().includes(term) || chat.remoteJid.includes(term));
+        const page = chats.slice(offset, offset + limit);
+
+        if (page.length === 0) {
+          return {
+            content: [{ type: "text", text: onlyAwaitingReply ? "Nenhuma conversa aguardando resposta." : "Nenhuma conversa encontrada." }]
+          };
+        }
+
+        const lines = page.map((chat) => {
+          const last = chat.lastMessage;
+          const sender = last?.key?.fromMe ? "Você" : last?.pushName || "Contato";
+          const unread = chat.unreadCount ? ` | ${chat.unreadCount} não lida(s)` : "";
+          const preview = last ? ` | ${formatTimestamp(last.messageTimestamp)} ${sender}: ${describeMessage(last)}` : "";
+          return `- ${chat.pushName || "Sem nome"} | remoteJid: ${chat.remoteJid}${unread}${preview}`;
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: `Conversas${onlyAwaitingReply ? " aguardando resposta" : ""} (${offset + 1}-${offset + page.length} de ${chats.length}):\n${lines.join("\n")}`
+          }]
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: "text",
+            text: `Erro ao listar conversas: ${(error as Error).message}`
+          }]
+        };
+      }
+    }
+  );
+
+  // Adiciona ferramenta para ler as mensagens de uma conversa
+  server.tool("getChatMessages",
+    "Lê as mensagens de uma conversa em ordem cronológica, com o ID de cada uma (para citar, reagir ou marcar como lida).",
+    {
+      remoteJid: z.string().min(1).describe(REMOTE_JID_DESCRIPTION),
+      limit: z.number().int().min(1).max(100).default(20).describe("Quantidade de mensagens por página"),
+      page: z.number().int().min(1).default(1).describe("Página: 1 = mensagens mais recentes")
+    },
+    async ({ remoteJid, limit, page }) => {
+      try {
+        const jid = toJid(remoteJid);
+        const { messages } = await evolutionService.findMessages({ key: { remoteJid: jid } }, { offset: limit, page });
+
+        if (messages.records.length === 0) {
+          return {
+            content: [{ type: "text", text: `Nenhuma mensagem encontrada para ${jid}.` }]
+          };
+        }
+
+        // A Evolution devolve da mais recente para a mais antiga; exibe em ordem cronológica
+        const lines = [...messages.records].reverse().map((msg) => {
+          const sender = msg.key.fromMe ? "Você" : msg.pushName || "Contato";
+          return `[${formatTimestamp(msg.messageTimestamp)}] ${sender}: ${describeMessage(msg)} (id: ${msg.key.id})`;
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: `Mensagens de ${jid} (página ${messages.currentPage} de ${messages.pages}, ${messages.total} no total):\n${lines.join("\n")}`
+          }]
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: "text",
+            text: `Erro ao buscar mensagens: ${(error as Error).message}`
+          }]
+        };
+      }
+    }
+  );
+
+  // Adiciona ferramenta para marcar uma conversa inteira como lida
+  server.tool("markChatAsRead",
+    "Marca como lidas as mensagens recebidas de uma conversa (o cliente vê os tiques azuis).",
+    {
+      remoteJid: z.string().min(1).describe(REMOTE_JID_DESCRIPTION)
+    },
+    async ({ remoteJid }) => {
+      try {
+        const jid = toJid(remoteJid);
+        // Envia confirmação de leitura das mensagens recebidas mais recentes da conversa
+        const { messages } = await evolutionService.findMessages({ key: { remoteJid: jid } }, { offset: 50, page: 1 });
+        const incoming = messages.records
+          .filter((msg) => !msg.key.fromMe)
+          .map((msg) => ({ id: msg.key.id, remoteJid: msg.key.remoteJid, fromMe: false }));
+
+        if (incoming.length === 0) {
+          return {
+            content: [{ type: "text", text: `Nenhuma mensagem recebida para marcar como lida em ${jid}.` }]
+          };
+        }
+
+        await evolutionService.markMessageAsRead(incoming);
+        return {
+          content: [{ type: "text", text: `Conversa ${jid} marcada como lida (${incoming.length} mensagem(ns) recebida(s)).` }]
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Erro ao marcar conversa como lida: ${(error as Error).message}` }]
+        };
+      }
+    }
+  );
+
+  // Adiciona ferramenta para reagir a uma mensagem
+  server.tool("reactToMessage",
+    "Reage a uma mensagem com um emoji (ex: 👍 para confirmar o recebimento).",
+    {
+      remoteJid: z.string().min(1).describe(REMOTE_JID_DESCRIPTION),
+      messageId: z.string().min(1).describe("ID da mensagem (retornado por getChatMessages)"),
+      emoji: z.string().describe("Emoji da reação (ex: 👍). Texto vazio remove a reação"),
+      fromMe: z.boolean().default(false).describe("True se a mensagem foi enviada por você (aparece como 'Você' em getChatMessages)")
+    },
+    async ({ remoteJid, messageId, emoji, fromMe }) => {
+      try {
+        await evolutionService.sendReaction({
+          key: { id: messageId, remoteJid: toJid(remoteJid), fromMe },
+          reaction: emoji
+        });
+        return {
+          content: [{ type: "text", text: emoji ? `Reação ${emoji} enviada.` : "Reação removida." }]
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Erro ao reagir à mensagem: ${(error as Error).message}` }]
+        };
+      }
+    }
+  );
+
+  // Adiciona ferramenta para buscar contatos
+  server.tool("searchContacts",
+    "Busca contatos por parte do nome ou do número e retorna o remoteJid para enviar mensagens.",
+    {
+      search: z.string().min(1).describe("Parte do nome ou do número do contato"),
+      limit: z.number().int().min(1).max(100).default(20).describe("Quantidade máxima de resultados")
+    },
+    async ({ search, limit }) => {
+      try {
+        // A Evolution só filtra por nome exato, então a busca parcial é feita aqui
+        const term = search.toLowerCase();
+        const digits = search.replace(/\D/g, "");
+        const matches = (await evolutionService.fetchContacts())
+          .filter((contact) => !contact.isGroup)
+          .filter((contact) =>
+            (contact.pushName ?? "").toLowerCase().includes(term) || (digits.length > 0 && contact.remoteJid.includes(digits))
+          );
+
+        if (matches.length === 0) {
+          return {
+            content: [{ type: "text", text: `Nenhum contato encontrado para "${search}".` }]
+          };
+        }
+
+        const lines = matches.slice(0, limit).map((contact) => `- ${contact.pushName || "Sem nome"} | remoteJid: ${contact.remoteJid}`);
+        return {
+          content: [{
+            type: "text",
+            text: `Contatos encontrados (${Math.min(limit, matches.length)} de ${matches.length}):\n${lines.join("\n")}`
+          }]
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: `Erro ao buscar contatos: ${(error as Error).message}` }]
+        };
+      }
+    }
+  );
+
   // ===== FERRAMENTAS DE PERFIL =====
 
   // Adiciona ferramenta para atualizar nome do perfil
   server.tool("updateProfileName",
+    "Atualiza o nome do perfil do WhatsApp da instância.",
     { 
       name: z.string().min(1).describe("Novo nome para o perfil")
     },
@@ -519,6 +734,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para atualizar status do perfil
   server.tool("updateProfileStatus",
+    "Atualiza o recado (status) do perfil do WhatsApp da instância.",
     { 
       status: z.string().min(1).describe("Novo status para o perfil")
     },
@@ -546,6 +762,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para criar grupo
   server.tool("createGroup",
+    "Cria um grupo com os participantes informados.",
     { 
       subject: z.string().min(1).describe("Nome do grupo"),
       participants: z.array(z.string()).min(1).describe("Lista de números de participantes"),
@@ -577,6 +794,7 @@ export function createMcpServer(): McpServer {
 
   // Adiciona ferramenta para adicionar participantes ao grupo
   server.tool("addGroupParticipants",
+    "Adiciona participantes a um grupo.",
     { 
       groupId: z.string().min(1).describe("ID do grupo"),
       participants: z.array(z.string()).min(1).describe("Lista de números de participantes")

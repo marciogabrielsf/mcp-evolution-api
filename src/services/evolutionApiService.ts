@@ -24,6 +24,7 @@ import type {
   CheckNumberResult,
   Contact,
   Chat,
+  FindMessagesResponse,
   ProfileInfo,
   PrivacySettings,
   CreateGroupRequest,
@@ -234,20 +235,27 @@ export class EvolutionApiService {
     return this.request("buscar contatos", "POST", `/chat/findContacts/${this.instance}`, { where });
   }
 
-  async findMessages(where: Record<string, unknown> = {}, limit?: number): Promise<unknown> {
-    return this.request("buscar mensagens", "POST", `/chat/findMessages/${this.instance}`, { where, limit });
+  // Mensagens armazenadas, da mais recente para a mais antiga. `offset` é o tamanho da página (padrão 50)
+  async findMessages(where: Record<string, unknown> = {}, pagination: { offset?: number; page?: number } = {}): Promise<FindMessagesResponse> {
+    return this.request("buscar mensagens", "POST", `/chat/findMessages/${this.instance}`, { where, ...pagination });
   }
 
-  async findStatusMessages(where: Record<string, unknown> = {}, limit?: number): Promise<unknown> {
-    return this.request("buscar mensagens de status", "POST", `/chat/findStatusMessage/${this.instance}`, { where, limit });
+  async findStatusMessages(where: Record<string, unknown> = {}, pagination: { offset?: number; page?: number } = {}): Promise<unknown> {
+    return this.request("buscar mensagens de status", "POST", `/chat/findStatusMessage/${this.instance}`, { where, ...pagination });
   }
 
   async updateMessage(number: string, key: MessageKey, text: string): Promise<unknown> {
     return this.request("atualizar mensagem", "POST", `/chat/updateMessage/${this.instance}`, { number, key, text });
   }
 
-  async fetchChats(where: Record<string, string> = {}): Promise<Chat[]> {
-    return this.request("buscar conversas", "POST", `/chat/findChats/${this.instance}`, { where });
+  // Conversas ordenadas pela mais recente, já com a última mensagem
+  async fetchChats(options: { remoteJid?: string; take?: number; skip?: number } = {}): Promise<Chat[]> {
+    const { remoteJid, take, skip } = options;
+    return this.request("buscar conversas", "POST", `/chat/findChats/${this.instance}`, {
+      where: remoteJid ? { remoteJid } : {},
+      take,
+      skip
+    });
   }
 
   // ===== PERFIL (rotas /chat na v2) =====

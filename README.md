@@ -206,10 +206,27 @@ O servidor MCP expõe as seguintes ferramentas que podem ser chamadas pelo clien
 - `sendPoll`: Envia uma enquete
 
 ### Controle de Chat
+- `listChats`: Lista as conversas com a última mensagem; `onlyAwaitingReply` mostra só as que aguardam resposta
+- `getChatMessages`: Lê as mensagens de uma conversa (com o ID de cada mensagem)
+- `markChatAsRead`: Marca como lidas as mensagens recebidas de uma conversa
+- `reactToMessage`: Reage a uma mensagem com um emoji
+- `searchContacts`: Busca contatos por nome ou número
 - `checkWhatsAppNumber`: Verifica se um número é do WhatsApp
 - `markMessageAsRead`: Marca mensagem como lida (informe o ID e o chat da mensagem)
 - `archiveChat`: Arquiva/desarquiva um chat
 - `deleteMessageForEveryone`: Exclui mensagem para todos (informe o ID e o chat da mensagem)
+
+As tools de envio aceitam como destinatário tanto o número quanto o `remoteJid` retornado por `listChats` (incluindo `@lid` e grupos `@g.us`).
+
+### Fluxo de atendimento com agente
+
+O MCP não envia notificações, então a mensagem nova chega por webhook da Evolution API:
+
+1. Configure o webhook da instância (evento `MESSAGES_UPSERT`) apontando para o seu fluxo (ex.: nó Webhook do n8n).
+2. Ignore mensagens com `data.key.fromMe = true`, senão o agente responde às próprias mensagens em loop.
+3. Passe para o agente o `data.key.remoteJid` e o texto recebido. Com as tools do MCP ele usa `getChatMessages` para ler o contexto, `sendTextMessage` (destinatário = `remoteJid`) para responder e `markChatAsRead` para marcar como lida.
+
+Para uma varredura periódica, use `listChats` com `onlyAwaitingReply: true`.
 
 ### Perfil
 - `updateProfileName`: Atualiza o nome do perfil
