@@ -48,7 +48,7 @@ O servidor expõe todas as categorias de funcionalidades da Evolution API:
 
 - Node.js 18+
 - NPM ou Yarn
-- Acesso a um servidor Evolution API v2
+- Acesso a um servidor Evolution API v2 (testado com a 2.3.7)
 
 ## Instalação
 
@@ -90,8 +90,8 @@ EVOLUTION_API_URL=https://seu-servidor-evolution-api.com
 # Chave API da Evolution API
 EVOLUTION_API_KEY=sua-chave-api
 
-# ID da instância WhatsApp na Evolution API
-EVOLUTION_API_INSTANCE=instancia-padrao
+# Nome da instância na Evolution API (o nome que aparece no Manager, não o token/ID)
+EVOLUTION_API_INSTANCE=nome-da-sua-instancia
 
 # Habilitar servidor HTTP do MCP: rotas /mcp, /sse e WebSocket (opcional)
 ENABLE_WEBSOCKET=true
@@ -207,9 +207,9 @@ O servidor MCP expõe as seguintes ferramentas que podem ser chamadas pelo clien
 
 ### Controle de Chat
 - `checkWhatsAppNumber`: Verifica se um número é do WhatsApp
-- `markMessageAsRead`: Marca mensagem como lida
+- `markMessageAsRead`: Marca mensagem como lida (informe o ID e o chat da mensagem)
 - `archiveChat`: Arquiva/desarquiva um chat
-- `deleteMessageForEveryone`: Exclui mensagem para todos
+- `deleteMessageForEveryone`: Exclui mensagem para todos (informe o ID e o chat da mensagem)
 
 ### Perfil
 - `updateProfileName`: Atualiza o nome do perfil

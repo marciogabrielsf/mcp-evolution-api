@@ -9,6 +9,11 @@ import "dotenv/config";
 // Inicializa o serviço da Evolution API
 const evolutionService = new EvolutionApiService();
 
+// Converte número em JID de usuário; JIDs (com "@") são mantidos
+function toJid(value: string): string {
+  return value.includes("@") ? value : `${value.replace(/\D/g, "")}@s.whatsapp.net`;
+}
+
 // Cria um servidor MCP com todas as ferramentas e recursos registrados.
 // O McpServer só mantém um transporte ativo por vez, então cada transporte
 // (STDIO ou conexão WebSocket) precisa da sua própria instância.
@@ -54,7 +59,7 @@ export function createMcpServer(): McpServer {
         return {
           content: [{ 
             type: "text", 
-            text: `Status da instância: ${status.state || "Desconhecido"}` 
+            text: `Status da instância: ${status.instance?.state || "Desconhecido"}` 
           }]
         };
       } catch (error) {
@@ -148,14 +153,18 @@ export function createMcpServer(): McpServer {
       number: z.string().min(1).describe("Número do destinatário no formato internacional (ex: 5511999999999)"),
       text: z.string().min(1).describe("Texto da mensagem a ser enviada"),
       options: z.object({
-        delay: z.number().optional().describe("Atraso em milissegundos"),
-        presence: z.enum(["composing", "recording", "paused"]).optional().describe("Presença a mostrar"),
+        delay: z.number().optional().describe("Atraso em milissegundos (mostra 'digitando...' durante o atraso)"),
         quotedMessageId: z.string().optional().describe("ID da mensagem a ser citada")
       }).optional().describe("Opções adicionais para o envio")
     },
     async ({ number, text, options }) => {
       try {
-        const result = await evolutionService.sendTextMessage({ number, text, options });
+        const result = await evolutionService.sendTextMessage({
+          number,
+          text,
+          delay: options?.delay,
+          quoted: options?.quotedMessageId ? { key: { id: options.quotedMessageId } } : undefined
+        });
         return {
           content: [{ 
             type: "text", 
@@ -184,14 +193,12 @@ export function createMcpServer(): McpServer {
     },
     async ({ number, url, caption, fileName, mediaType }) => {
       try {
-        const result = await evolutionService.sendMedia({
+        await evolutionService.sendMedia({
           number,
-          media: {
-            url,
-            caption,
-            fileName,
-            mediaType
-          }
+          mediatype: mediaType,
+          media: url,
+          caption,
+          fileName
         });
         return {
           content: [{ 
@@ -215,17 +222,17 @@ export function createMcpServer(): McpServer {
     { 
       number: z.string().min(1).describe("Número do destinatário no formato internacional"),
       url: z.string().url().describe("URL do áudio a ser enviado"),
-      ptt: z.boolean().optional().describe("Se é uma mensagem de voz (Push-to-talk)")
+      ptt: z.boolean().optional().describe("Se é uma mensagem de voz (Push-to-talk). Padrão: true")
     },
-    async ({ number, url, ptt }) => {
+    async ({ number, url, ptt = true }) => {
       try {
-        await evolutionService.sendAudio({
-          number,
-          audio: {
-            url,
-            ptt
-          }
-        });
+        // A Evolution v2 envia /sendWhatsAppAudio sempre como mensagem de voz;
+        // áudio comum (arquivo) vai por /sendMedia
+        if (ptt) {
+          await evolutionService.sendAudio({ number, audio: url });
+        } else {
+          await evolutionService.sendMedia({ number, mediatype: "audio", media: url });
+        }
         return {
           content: [{ 
             type: "text", 
@@ -253,7 +260,7 @@ export function createMcpServer(): McpServer {
       try {
         await evolutionService.sendSticker({
           number,
-          sticker: { url }
+          sticker: url
         });
         return {
           content: [{ 
@@ -285,7 +292,10 @@ export function createMcpServer(): McpServer {
       try {
         await evolutionService.sendLocation({
           number,
-          location: { lat, lng, title, address }
+          latitude: lat,
+          longitude: lng,
+          name: title ?? "",
+          address: address ?? ""
         });
         return {
           content: [{ 
@@ -309,14 +319,14 @@ export function createMcpServer(): McpServer {
     { 
       number: z.string().min(1).describe("Número do destinatário no formato internacional"),
       fullName: z.string().min(1).describe("Nome completo do contato"),
-      wuid: z.string().min(1).describe("ID do WhatsApp do contato"),
+      wuid: z.string().optional().describe("ID do WhatsApp do contato (só dígitos, ex: 5511999999999). Padrão: derivado do telefone"),
       phoneNumber: z.string().min(1).describe("Número de telefone do contato")
     },
     async ({ number, fullName, wuid, phoneNumber }) => {
       try {
         await evolutionService.sendContact({
           number,
-          contact: { fullName, wuid, phoneNumber }
+          contact: [{ fullName, wuid, phoneNumber }]
         });
         return {
           content: [{ 
@@ -347,7 +357,9 @@ export function createMcpServer(): McpServer {
       try {
         await evolutionService.sendPoll({
           number,
-          poll: { name, options, multipleChoice }
+          name,
+          values: options,
+          selectableCount: multipleChoice ? options.length : 1
         });
         return {
           content: [{ 
@@ -375,8 +387,8 @@ export function createMcpServer(): McpServer {
     },
     async ({ phone }) => {
       try {
-        const result = await evolutionService.checkWhatsAppNumber({ phone });
-        const isWhatsApp = result?.numbers?.[0]?.exists || false;
+        const [result] = await evolutionService.checkWhatsAppNumbers([phone]);
+        const isWhatsApp = result?.exists || false;
         return {
           content: [{ 
             type: "text", 
@@ -399,11 +411,13 @@ export function createMcpServer(): McpServer {
   // Adiciona ferramenta para marcar mensagem como lida
   server.tool("markMessageAsRead",
     { 
-      messageId: z.string().min(1).describe("ID da mensagem a ser marcada como lida")
+      messageId: z.string().min(1).describe("ID da mensagem a ser marcada como lida"),
+      remoteJid: z.string().min(1).describe("Chat da mensagem: número (ex: 5511999999999) ou JID"),
+      fromMe: z.boolean().default(false).describe("Se a mensagem foi enviada por você")
     },
-    async ({ messageId }) => {
+    async ({ messageId, remoteJid, fromMe }) => {
       try {
-        await evolutionService.markMessageAsRead(messageId);
+        await evolutionService.markMessageAsRead([{ id: messageId, remoteJid: toJid(remoteJid), fromMe }]);
         return {
           content: [{ 
             type: "text", 
@@ -429,7 +443,7 @@ export function createMcpServer(): McpServer {
     },
     async ({ number, shouldArchive }) => {
       try {
-        await evolutionService.archiveChat(number);
+        await evolutionService.archiveChat(number, shouldArchive);
         return {
           content: [{ 
             type: "text", 
@@ -452,11 +466,13 @@ export function createMcpServer(): McpServer {
   // Adiciona ferramenta para excluir mensagem para todos
   server.tool("deleteMessageForEveryone",
     { 
-      messageId: z.string().min(1).describe("ID da mensagem a ser excluída")
+      messageId: z.string().min(1).describe("ID da mensagem a ser excluída"),
+      remoteJid: z.string().min(1).describe("Chat da mensagem: número (ex: 5511999999999) ou JID"),
+      fromMe: z.boolean().default(true).describe("Se a mensagem foi enviada por você")
     },
-    async ({ messageId }) => {
+    async ({ messageId, remoteJid, fromMe }) => {
       try {
-        await evolutionService.deleteMessageForEveryone(messageId);
+        await evolutionService.deleteMessageForEveryone({ id: messageId, remoteJid: toJid(remoteJid), fromMe });
         return {
           content: [{ 
             type: "text", 
@@ -545,7 +561,7 @@ export function createMcpServer(): McpServer {
         return {
           content: [{ 
             type: "text", 
-            text: `Grupo "${subject}" criado com sucesso. ID: ${result.groupId}` 
+            text: `Grupo "${subject}" criado com sucesso. ID: ${result?.id ?? "não disponível"}` 
           }]
         };
       } catch (error) {
@@ -597,14 +613,13 @@ export function createMcpServer(): McpServer {
     new ResourceTemplate("contacts://list", { list: undefined }),
     async (uri) => {
       try {
-        const contactsData = await evolutionService.fetchContacts();
-        const contacts = contactsData?.data || [];
+        const contacts = await evolutionService.fetchContacts();
       
         return {
           contents: [{
             uri: uri.href,
             text: `Contatos disponíveis (${contacts.length}):\n${contacts
-              .map((contact: any) => `- ${contact.name || "Sem nome"}: ${contact.id.replace("@c.us", "")}`)
+              .map((contact) => `- ${contact.pushName || "Sem nome"}: ${contact.remoteJid.split("@")[0]}`)
               .join("\n")}`
           }]
         };
@@ -625,14 +640,13 @@ export function createMcpServer(): McpServer {
     new ResourceTemplate("chats://list", { list: undefined }),
     async (uri) => {
       try {
-        const chatsData = await evolutionService.fetchChats();
-        const chats = chatsData?.data || [];
+        const chats = await evolutionService.fetchChats();
       
         return {
           contents: [{
             uri: uri.href,
             text: `Conversas disponíveis (${chats.length}):\n${chats
-              .map((chat: any) => `- ${chat.name || chat.id || "Chat sem nome"}`)
+              .map((chat) => `- ${chat.pushName || "Sem nome"}: ${chat.remoteJid}${chat.unreadCount ? ` (${chat.unreadCount} não lidas)` : ""}`)
               .join("\n")}`
           }]
         };
@@ -653,14 +667,13 @@ export function createMcpServer(): McpServer {
     new ResourceTemplate("groups://list", { list: undefined }),
     async (uri) => {
       try {
-        const groupsData = await evolutionService.fetchAllGroups();
-        const groups = groupsData?.data || [];
+        const groups = await evolutionService.fetchAllGroups();
       
         return {
           contents: [{
             uri: uri.href,
             text: `Grupos disponíveis (${groups.length}):\n${groups
-              .map((group: any) => `- ${group.subject || group.id || "Grupo sem nome"} (${group.participants?.length || 0} membros)`)
+              .map((group) => `- ${group.subject || "Grupo sem nome"}: ${group.id} (${group.size ?? 0} membros)`)
               .join("\n")}`
           }]
         };
@@ -681,12 +694,14 @@ export function createMcpServer(): McpServer {
     new ResourceTemplate("profile://info", { list: undefined }),
     async (uri) => {
       try {
-        const profile = await evolutionService.fetchProfile();
+        // O fetchProfile sem número não traz nome/recado, então busca pelo número do dono da instância
+        const info = await evolutionService.fetchInstanceInfo();
+        const profile = info.ownerJid ? await evolutionService.fetchProfile(info.ownerJid.split("@")[0]) : undefined;
       
         return {
           contents: [{
             uri: uri.href,
-            text: `Informações do perfil:\n- Nome: ${profile.name || "Não definido"}\n- Status: ${profile.status || "Não definido"}`
+            text: `Informações do perfil:\n- Instância: ${info.name} (${info.connectionStatus})\n- Número: ${info.ownerJid?.split("@")[0] || "Não conectado"}\n- Nome: ${info.profileName || "Não definido"}\n- Recado: ${profile?.status?.status || "Não definido"}\n- Conta comercial: ${profile?.isBusiness ? "Sim" : "Não"}`
           }]
         };
       } catch (error) {

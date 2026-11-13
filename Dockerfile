@@ -10,6 +10,9 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# No container o MCP é acessado via HTTP; sem isso o processo encerra logo ao iniciar
+ENV ENABLE_WEBSOCKET=true
+ENV PORT=3000
 
 COPY package*.json ./
 RUN npm ci --omit=dev

@@ -1,197 +1,156 @@
-// Interfaces para a Evolution API
+// Interfaces para a Evolution API v2 (validadas contra a versão 2.3.7)
 
-// Informações básicas da API
+// ===== GERAL =====
+
 export interface ApiInfo {
   status: number;
   message: string;
   version: string;
-  swagger?: string;
+  clientName?: string;
   manager?: string;
   documentation?: string;
+  whatsappWebVersion?: string;
 }
 
-// Status da instância
+// ===== INSTÂNCIA =====
+
 export interface InstanceStatus {
-  state: string;
-  status: string;
-  qrcode?: string;
-  message?: string;
+  instance: {
+    instanceName: string;
+    state: "open" | "connecting" | "close" | string;
+  };
 }
 
-// Mensagens de texto
-export interface SendTextMessageRequest {
-  number: string;
-  text: string;
-  options?: MessageOptions;
+export interface InstanceInfo {
+  id: string;
+  name: string;
+  connectionStatus: string;
+  ownerJid: string | null;
+  profileName: string | null;
+  profilePicUrl: string | null;
+  integration: string;
+  number: string | null;
 }
 
+export type Presence = "available" | "unavailable" | "composing" | "recording" | "paused";
+
+export interface SettingsConfig {
+  rejectCall?: boolean;
+  msgCall?: string;
+  groupsIgnore?: boolean;
+  alwaysOnline?: boolean;
+  readMessages?: boolean;
+  readStatus?: boolean;
+  syncFullHistory?: boolean;
+}
+
+export interface WebhookConfig {
+  enabled: boolean;
+  url: string;
+  headers?: Record<string, string>;
+  byEvents?: boolean;
+  base64?: boolean;
+  events?: string[];
+}
+
+export interface InstanceConfig extends SettingsConfig {
+  token?: string;
+  number?: string;
+  qrcode?: boolean;
+  integration?: "WHATSAPP-BAILEYS" | "WHATSAPP-BUSINESS" | "EVOLUTION";
+  webhook?: WebhookConfig;
+}
+
+// ===== MENSAGENS =====
+
+export interface MessageKey {
+  id: string;
+  remoteJid: string;
+  fromMe: boolean;
+}
+
+// Opções comuns aceitas pelos endpoints /message/*
 export interface MessageOptions {
   delay?: number;
-  presence?: "composing" | "recording" | "paused";
-  quotedMessageId?: string;
-  mentionedList?: string[];
-}
-
-export interface SendTextMessageResponse {
-  key: {
-    id: string;
-    remoteJid: string;
-    fromMe: boolean;
+  quoted?: {
+    key: { id: string; remoteJid?: string; fromMe?: boolean };
+    message?: Record<string, unknown>;
   };
-  message: {
-    conversation: string;
-  };
-  messageTimestamp: number;
-  status: string;
+  everyOne?: boolean;
+  mentioned?: string[];
 }
 
-// Verificação de números
-export interface CheckNumberRequest {
-  phone: string;
+export interface SendMessageResponse {
+  key: MessageKey;
+  message?: Record<string, unknown>;
+  messageTimestamp?: number | string;
+  status?: string;
 }
 
-export interface CheckNumberResponse {
-  numbers: Array<{
-    jid: string;
-    exists: boolean;
-    phone: string;
-  }>;
-}
-
-// Contatos e chats
-export interface Contact {
-  id: string;
-  name?: string;
-  pushname?: string;
-  shortName?: string;
-  isMe?: boolean;
-  isGroup?: boolean;
-}
-
-export interface Chat {
-  id: string;
-  name?: string;
-  lastMessage?: {
-    text?: string;
-    timestamp?: number;
-  };
-  unreadCount?: number;
-  isGroup?: boolean;
-}
-
-// Templates de mensagem
-export interface SendTemplateRequest {
+export interface SendTextMessageRequest extends MessageOptions {
   number: string;
-  template: {
-    namespace: string;
-    name: string;
-    language: {
-      code: string;
-    };
-    components: TemplateComponent[];
-  };
-  options?: MessageOptions;
+  text: string;
+  linkPreview?: boolean;
 }
 
-export interface TemplateComponent {
-  type: "header" | "body" | "button" | "footer";
-  parameters?: TemplateParameter[];
-}
-
-export interface TemplateParameter {
-  type: "text" | "image" | "document" | "video";
-  text?: string;
-  image?: { link: string };
-  document?: { link: string; filename: string };
-  video?: { link: string };
-}
-
-// Mídia
-export interface SendMediaRequest {
+export interface SendMediaRequest extends MessageOptions {
   number: string;
-  media: {
-    url: string;
-    caption?: string;
-    fileName?: string;
-    mediaType?: "image" | "document" | "video" | "audio";
-  };
-  options?: MessageOptions;
+  mediatype: "image" | "document" | "video" | "audio";
+  media: string; // URL ou base64
+  mimetype?: string;
+  fileName?: string;
+  caption?: string;
 }
 
-// Áudios
-export interface SendAudioRequest {
+// Enviado como mensagem de voz (PTT)
+export interface SendAudioRequest extends MessageOptions {
   number: string;
-  audio: {
-    url: string;
-    ptt?: boolean; // Push to talk (mensagem de voz)
-  };
-  options?: MessageOptions;
+  audio: string; // URL ou base64
 }
 
-// Stickers
-export interface SendStickerRequest {
+export interface SendStickerRequest extends MessageOptions {
   number: string;
-  sticker: {
-    url: string;
-  };
-  options?: MessageOptions;
+  sticker: string; // URL ou base64
 }
 
-// Localização
-export interface SendLocationRequest {
+export interface SendLocationRequest extends MessageOptions {
   number: string;
-  location: {
-    lat: number;
-    lng: number;
-    title?: string;
-    address?: string;
-  };
-  options?: MessageOptions;
+  latitude: number;
+  longitude: number;
+  name: string;
+  address: string;
 }
 
-// Contatos
+export interface ContactCard {
+  fullName: string;
+  phoneNumber: string;
+  wuid?: string;
+  organization?: string;
+  email?: string;
+  url?: string;
+}
+
 export interface SendContactRequest {
   number: string;
-  contact: {
-    fullName: string;
-    wuid: string;
-    phoneNumber: string;
-  };
-  options?: MessageOptions;
+  contact: ContactCard[];
 }
 
-// Reações
 export interface SendReactionRequest {
-  reactionMessage: {
-    key: {
-      id: string;
-      remoteJid: string;
-    };
-    reaction: string;
-  };
+  key: MessageKey;
+  reaction: string;
 }
 
-// Enquetes
-export interface SendPollRequest {
+export interface SendPollRequest extends MessageOptions {
   number: string;
-  poll: {
-    name: string;
-    options: string[];
-    multipleChoice?: boolean;
-  };
-  options?: MessageOptions;
+  name: string;
+  selectableCount: number;
+  values: string[];
 }
 
-// Listas
-export interface SendListRequest {
-  number: string;
-  list: {
-    title: string;
-    description: string;
-    buttonText: string;
-    sections: ListSection[];
-  };
-  options?: MessageOptions;
+export interface ListRow {
+  title: string;
+  description?: string;
+  rowId: string;
 }
 
 export interface ListSection {
@@ -199,78 +158,118 @@ export interface ListSection {
   rows: ListRow[];
 }
 
-export interface ListRow {
-  id: string;
+export interface SendListRequest extends MessageOptions {
+  number: string;
   title: string;
   description?: string;
+  footerText: string;
+  buttonText: string;
+  sections: ListSection[];
 }
 
-// Status
 export interface SendStatusRequest {
-  status: {
-    type: "text" | "image" | "video" | "audio";
-    content: string; // Texto ou URL
-    caption?: string;
-    options?: {
-      backgroundColor?: string;
-      font?: number;
-    };
-  };
+  type: "text" | "image" | "audio" | "video";
+  content: string; // Texto ou URL
+  caption?: string;
+  backgroundColor?: string;
+  font?: number;
+  statusJidList?: string[];
+  allContacts?: boolean;
 }
 
-// Perfil
+// Disponível apenas para a integração WHATSAPP-BUSINESS (Cloud API)
+export interface SendTemplateRequest {
+  number: string;
+  name: string;
+  language: string;
+  components?: unknown[];
+  webhookUrl?: string;
+}
+
+// ===== CHAT =====
+
+export interface CheckNumberResult {
+  jid: string;
+  exists: boolean;
+  number: string;
+  name?: string;
+}
+
+export interface Contact {
+  id: string;
+  remoteJid: string;
+  pushName?: string | null;
+  profilePicUrl?: string | null;
+  isGroup?: boolean;
+  isSaved?: boolean;
+  type?: string;
+}
+
+export interface Chat {
+  id: string;
+  remoteJid: string;
+  pushName?: string | null;
+  profilePicUrl?: string | null;
+  unreadCount?: number;
+  lastMessage?: Record<string, unknown>;
+  updatedAt?: string;
+}
+
+// ===== PERFIL =====
+
 export interface ProfileInfo {
+  wuid: string;
   name?: string;
-  status?: string;
-  picUrl?: string;
-  business?: {
-    description?: string;
-    email?: string;
-    websites?: string[];
-    categories?: string[];
-  };
+  numberExists: boolean;
+  picture?: string;
+  status?: { status?: string; setAt?: string };
+  isBusiness?: boolean;
+  email?: string;
+  description?: string;
+  website?: string[];
 }
 
-export interface UpdateProfileRequest {
-  name?: string;
-  status?: string;
-}
+type PrivacyValue = "all" | "contacts" | "contact_blacklist" | "none";
 
-// Privacidade
 export interface PrivacySettings {
-  readreceipts: "all" | "contacts" | "none";
-  profile: "all" | "contacts" | "none";
-  status: "all" | "contacts" | "none";
-  online: "all" | "contacts" | "none";
-  last: "all" | "contacts" | "none";
-  groupadd: "all" | "contacts" | "none";
+  readreceipts: "all" | "none";
+  profile: PrivacyValue;
+  status: PrivacyValue;
+  online: "all" | "match_last_seen";
+  last: PrivacyValue;
+  groupadd: PrivacyValue;
 }
 
-// Grupos
+// ===== GRUPOS =====
+
 export interface CreateGroupRequest {
   subject: string;
   participants: string[];
   description?: string;
-  picture?: string;
-}
-
-export interface GroupInfo {
-  id: string;
-  subject: string;
-  description?: string;
-  owner?: string;
-  participants: GroupParticipant[];
-  creation?: number;
-  ephemeralDuration?: number;
+  profilePicture?: string;
+  promoteParticipants?: boolean;
 }
 
 export interface GroupParticipant {
   id: string;
   admin?: "admin" | "superadmin" | null;
-  isSuperAdmin?: boolean;
 }
 
-export interface GroupUpdateRequest {
+export interface GroupInfo {
+  id: string;
+  subject: string;
+  subjectOwner?: string;
+  pictureUrl?: string | null;
+  size?: number;
+  creation?: number;
+  owner?: string;
+  desc?: string;
+  restrict?: boolean;
+  announce?: boolean;
+  participants?: GroupParticipant[];
+}
+
+export interface GroupUpdateParticipantsRequest {
   groupJid: string;
   action: "add" | "remove" | "promote" | "demote";
   participants: string[];
@@ -278,57 +277,54 @@ export interface GroupUpdateRequest {
 
 export interface GroupSettingRequest {
   groupJid: string;
-  setting: "announcement" | "locked" | "unlocked";
+  action: "announcement" | "not_announcement" | "locked" | "unlocked";
 }
 
-// Webhook
-export interface WebhookConfig {
-  url: string;
-  enabled: boolean;
-  events?: WebhookEvent[];
-}
+export type EphemeralExpiration = 0 | 86400 | 604800 | 7776000;
 
-export type WebhookEvent = 
-  | "message" 
-  | "message.ack" 
-  | "qr" 
-  | "connection.update" 
-  | "group.update" 
-  | "presence.update";
+// ===== INTEGRAÇÕES =====
 
-// Chatwoot
 export interface ChatwootConfig {
   enabled: boolean;
-  account_id: string;
+  accountId: string;
   token: string;
-  endpoint: string;
-  instance_name?: string;
-  sign_msg?: boolean;
-  name_inbox?: string;
+  url: string;
+  signMsg: boolean;
+  reopenConversation: boolean;
+  conversationPending: boolean;
+  signDelimiter?: string | null;
+  nameInbox?: string | null;
+  autoCreate?: boolean;
+  importContacts?: boolean;
+  mergeBrazilContacts?: boolean;
+  importMessages?: boolean;
+  daysLimitImportMessages?: number;
+  ignoreJids?: string[];
 }
 
-// Typebot
 export interface TypebotConfig {
   enabled: boolean;
   url: string;
   typebot: string;
+  triggerType: "all" | "keyword" | "none" | "advanced";
+  description?: string;
+  triggerOperator?: "equals" | "contains" | "startsWith" | "endsWith" | "regex";
+  triggerValue?: string;
   expire?: number;
-  keyword_finish?: string[];
-  delay_message?: number;
-  unknown_message?: string;
-  listening_from_me?: boolean;
+  keywordFinish?: string;
+  delayMessage?: number;
+  unknownMessage?: string;
+  listeningFromMe?: boolean;
+  stopBotFromMe?: boolean;
+  ignoreJids?: string[];
 }
 
-// Instância
-export interface InstanceConfig {
-  instanceName: string;
-  webhook?: WebhookConfig;
-  settings?: {
-    reject_call?: boolean;
-    msg_call?: string;
-    groups_ignore?: boolean;
-    always_online?: boolean;
-    read_messages?: boolean;
-    read_status?: boolean;
-  };
+export interface TypebotStartRequest {
+  remoteJid: string;
+  url: string;
+  typebot: string;
+  startSession?: boolean;
+  variables?: Array<{ name: string; value: string }>;
 }
+
+export type TypebotSessionStatus = "opened" | "closed" | "paused" | "delete";

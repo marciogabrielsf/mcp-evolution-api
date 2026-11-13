@@ -1,15 +1,16 @@
 import axios from "axios";
 import { config } from "../config.js";
-import { 
-  ApiInfo, 
-  InstanceStatus, 
-  SendTextMessageRequest, 
-  SendTextMessageResponse, 
-  CheckNumberRequest, 
-  CheckNumberResponse,
-  Contact,
-  Chat,
-  SendTemplateRequest,
+import type {
+  ApiInfo,
+  InstanceStatus,
+  InstanceInfo,
+  InstanceConfig,
+  Presence,
+  SettingsConfig,
+  WebhookConfig,
+  MessageKey,
+  SendMessageResponse,
+  SendTextMessageRequest,
   SendMediaRequest,
   SendAudioRequest,
   SendStickerRequest,
@@ -19,798 +20,364 @@ import {
   SendPollRequest,
   SendListRequest,
   SendStatusRequest,
+  SendTemplateRequest,
+  CheckNumberResult,
+  Contact,
+  Chat,
   ProfileInfo,
-  UpdateProfileRequest,
   PrivacySettings,
   CreateGroupRequest,
   GroupInfo,
-  GroupUpdateRequest,
+  GroupUpdateParticipantsRequest,
   GroupSettingRequest,
-  WebhookConfig,
+  EphemeralExpiration,
   ChatwootConfig,
   TypebotConfig,
-  InstanceConfig
+  TypebotStartRequest,
+  TypebotSessionStatus
 } from "../types.js";
 
 // Cliente Axios configurado para a Evolution API
 const apiClient = axios.create({
   baseURL: config.evolutionApi.baseUrl,
+  timeout: 60000,
   headers: {
     "Content-Type": "application/json",
     "apikey": config.evolutionApi.apiKey
   }
 });
 
-// Classe de serviço para a Evolution API
-export class EvolutionApiService {
-  private instanceId: string;
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+type QueryParams = Record<string, string | number | boolean | undefined>;
 
-  constructor(instanceId: string = config.evolutionApi.instanceId) {
-    this.instanceId = instanceId;
+// Monta um erro legível com a mensagem da Evolution API.
+// Não reaproveita o erro do axios porque ele carrega os headers da requisição (incluindo a apikey).
+function toEvolutionError(error: unknown): Error {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  const status = error.response?.status;
+  const data = error.response?.data as
+    | { response?: { message?: unknown }; message?: unknown; error?: unknown }
+    | undefined;
+  const raw = data?.response?.message ?? data?.message ?? data?.error;
+  const detail = Array.isArray(raw)
+    ? raw.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join("; ")
+    : typeof raw === "string"
+      ? raw
+      : error.message;
+
+  return new Error(status ? `${detail} (HTTP ${status})` : detail);
+}
+
+// Classe de serviço para a Evolution API v2
+export class EvolutionApiService {
+  constructor(private readonly instanceName: string = config.evolutionApi.instanceId) {}
+
+  private get instance(): string {
+    return encodeURIComponent(this.instanceName);
+  }
+
+  private async request<T>(action: string, method: HttpMethod, path: string, data?: unknown, params?: QueryParams): Promise<T> {
+    try {
+      const response = await apiClient.request<T>({ method, url: path, data, params });
+      return response.data;
+    } catch (error) {
+      const evolutionError = toEvolutionError(error);
+      console.error(`Erro ao ${action}: ${evolutionError.message}`);
+      throw evolutionError;
+    }
   }
 
   // ===== FUNÇÕES GERAIS DA API =====
 
-  // Obter informações sobre a API
   async getApiInfo(): Promise<ApiInfo> {
-    try {
-      const response = await apiClient.get<ApiInfo>("/");
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao obter informações da API:", error);
-      throw error;
-    }
+    return this.request("obter informações da API", "GET", "/");
   }
 
   // ===== GESTÃO DE INSTÂNCIAS =====
 
-  // Verificar status da instância
   async getInstanceStatus(): Promise<InstanceStatus> {
-    try {
-      const response = await apiClient.get<InstanceStatus>(`/instance/connectionState/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao verificar status da instância:", error);
-      throw error;
-    }
+    return this.request("verificar status da instância", "GET", `/instance/connectionState/${this.instance}`);
   }
 
-  // Criar uma nova instância
-  async createInstance(instanceName: string, config?: InstanceConfig): Promise<any> {
-    try {
-      const response = await apiClient.post('/instance/create', {
-        instanceName,
-        ...config
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao criar instância:", error);
-      throw error;
+  async fetchInstanceInfo(): Promise<InstanceInfo> {
+    const instances = await this.request<InstanceInfo[]>(
+      "buscar dados da instância", "GET", "/instance/fetchInstances", undefined, { instanceName: this.instanceName }
+    );
+    const info = instances?.[0];
+    if (!info) {
+      throw new Error(`Instância "${this.instanceName}" não encontrada na Evolution API`);
     }
+    return info;
   }
 
-  // Excluir uma instância
-  async deleteInstance(): Promise<any> {
-    try {
-      const response = await apiClient.delete(`/instance/delete/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao excluir instância:", error);
-      throw error;
-    }
+  async createInstance(instanceName: string, instanceConfig: InstanceConfig = {}): Promise<unknown> {
+    return this.request("criar instância", "POST", "/instance/create", {
+      instanceName,
+      integration: "WHATSAPP-BAILEYS",
+      ...instanceConfig
+    });
   }
 
-  // Redefinir a instância
-  async restartInstance(): Promise<any> {
-    try {
-      const response = await apiClient.put(`/instance/restart/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao reiniciar instância:", error);
-      throw error;
-    }
+  async deleteInstance(): Promise<unknown> {
+    return this.request("excluir instância", "DELETE", `/instance/delete/${this.instance}`);
   }
 
-  // Configurar presença da instância
-  async setPresence(presence: "available" | "unavailable" | "composing" | "recording" | "paused"): Promise<any> {
-    try {
-      const response = await apiClient.post(`/instance/presence/${this.instanceId}`, {
-        presence
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao definir presença:", error);
-      throw error;
-    }
+  async restartInstance(): Promise<unknown> {
+    return this.request("reiniciar instância", "POST", `/instance/restart/${this.instance}`);
   }
 
-  // Desconectar a instância do WhatsApp
-  async logout(): Promise<any> {
-    try {
-      const response = await apiClient.post(`/instance/logout/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao desconectar instância:", error);
-      throw error;
-    }
+  async setPresence(presence: Presence): Promise<unknown> {
+    return this.request("definir presença", "POST", `/instance/setPresence/${this.instance}`, { presence });
+  }
+
+  async logout(): Promise<unknown> {
+    return this.request("desconectar instância", "DELETE", `/instance/logout/${this.instance}`);
   }
 
   // ===== WEBHOOK =====
 
-  // Configurar Webhook
-  async setWebhook(webhook: WebhookConfig): Promise<any> {
-    try {
-      const response = await apiClient.post(`/webhook/set/${this.instanceId}`, webhook);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao configurar webhook:", error);
-      throw error;
-    }
+  async setWebhook(webhook: WebhookConfig): Promise<unknown> {
+    return this.request("configurar webhook", "POST", `/webhook/set/${this.instance}`, { webhook });
   }
 
-  // Buscar configuração do Webhook
-  async getWebhook(): Promise<any> {
-    try {
-      const response = await apiClient.get(`/webhook/find/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar webhook:", error);
-      throw error;
-    }
+  async getWebhook(): Promise<unknown> {
+    return this.request("buscar webhook", "GET", `/webhook/find/${this.instance}`);
   }
 
   // ===== CONFIGURAÇÕES =====
 
-  // Definir configurações da instância
-  async setSettings(settings: any): Promise<any> {
-    try {
-      const response = await apiClient.post(`/settings/set/${this.instanceId}`, settings);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao definir configurações:", error);
-      throw error;
-    }
+  async setSettings(settings: SettingsConfig): Promise<unknown> {
+    return this.request("definir configurações", "POST", `/settings/set/${this.instance}`, settings);
   }
 
-  // Buscar configurações da instância
-  async getSettings(): Promise<any> {
-    try {
-      const response = await apiClient.get(`/settings/find/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar configurações:", error);
-      throw error;
-    }
+  async getSettings(): Promise<SettingsConfig> {
+    return this.request("buscar configurações", "GET", `/settings/find/${this.instance}`);
   }
 
   // ===== ENVIO DE MENSAGENS =====
 
-  // Enviar mensagem de texto
-  async sendTextMessage({ number, text, options }: SendTextMessageRequest): Promise<SendTextMessageResponse> {
-    try {
-      const response = await apiClient.post<SendTextMessageResponse>(`/message/text/${this.instanceId}`, {
-        number,
-        options: options || { delay: 1200 },
-        textMessage: { text }
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar mensagem de texto:", error);
-      throw error;
-    }
+  async sendTextMessage(data: SendTextMessageRequest): Promise<SendMessageResponse> {
+    return this.request("enviar mensagem de texto", "POST", `/message/sendText/${this.instance}`, data);
   }
 
-  // Enviar template
-  async sendTemplate(data: SendTemplateRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/template/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar template:", error);
-      throw error;
-    }
+  async sendTemplate(data: SendTemplateRequest): Promise<SendMessageResponse> {
+    return this.request("enviar template", "POST", `/message/sendTemplate/${this.instance}`, data);
   }
 
-  // Enviar status
-  async sendStatus(data: SendStatusRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/status/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar status:", error);
-      throw error;
-    }
+  async sendStatus(data: SendStatusRequest): Promise<SendMessageResponse> {
+    return this.request("enviar status", "POST", `/message/sendStatus/${this.instance}`, data);
   }
 
-  // Enviar mídia
-  async sendMedia(data: SendMediaRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/media/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar mídia:", error);
-      throw error;
-    }
+  async sendMedia(data: SendMediaRequest): Promise<SendMessageResponse> {
+    return this.request("enviar mídia", "POST", `/message/sendMedia/${this.instance}`, data);
   }
 
-  // Enviar áudio WhatsApp
-  async sendAudio(data: SendAudioRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/audio/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar áudio:", error);
-      throw error;
-    }
+  async sendAudio(data: SendAudioRequest): Promise<SendMessageResponse> {
+    return this.request("enviar áudio", "POST", `/message/sendWhatsAppAudio/${this.instance}`, data);
   }
 
-  // Enviar sticker
-  async sendSticker(data: SendStickerRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/sticker/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar sticker:", error);
-      throw error;
-    }
+  async sendSticker(data: SendStickerRequest): Promise<SendMessageResponse> {
+    return this.request("enviar sticker", "POST", `/message/sendSticker/${this.instance}`, data);
   }
 
-  // Enviar localização
-  async sendLocation(data: SendLocationRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/location/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar localização:", error);
-      throw error;
-    }
+  async sendLocation(data: SendLocationRequest): Promise<SendMessageResponse> {
+    return this.request("enviar localização", "POST", `/message/sendLocation/${this.instance}`, data);
   }
 
-  // Enviar contato
-  async sendContact(data: SendContactRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/contact/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar contato:", error);
-      throw error;
-    }
+  async sendContact(data: SendContactRequest): Promise<SendMessageResponse> {
+    return this.request("enviar contato", "POST", `/message/sendContact/${this.instance}`, data);
   }
 
-  // Enviar reação
-  async sendReaction(data: SendReactionRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/reaction/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar reação:", error);
-      throw error;
-    }
+  async sendReaction(data: SendReactionRequest): Promise<SendMessageResponse> {
+    return this.request("enviar reação", "POST", `/message/sendReaction/${this.instance}`, data);
   }
 
-  // Enviar enquete
-  async sendPoll(data: SendPollRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/poll/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar enquete:", error);
-      throw error;
-    }
+  async sendPoll(data: SendPollRequest): Promise<SendMessageResponse> {
+    return this.request("enviar enquete", "POST", `/message/sendPoll/${this.instance}`, data);
   }
 
-  // Enviar lista
-  async sendList(data: SendListRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/message/list/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar lista:", error);
-      throw error;
-    }
+  async sendList(data: SendListRequest): Promise<SendMessageResponse> {
+    return this.request("enviar lista", "POST", `/message/sendList/${this.instance}`, data);
   }
 
   // ===== CONTROLADOR DE CHAT =====
 
-  // Verificar se um número é do WhatsApp
-  async checkWhatsAppNumber({ phone }: CheckNumberRequest): Promise<CheckNumberResponse> {
-    try {
-      const response = await apiClient.post<CheckNumberResponse>(`/chat/whatsappNumbers/${this.instanceId}`, {
-        numbers: [phone]
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao verificar número de WhatsApp:", error);
-      throw error;
-    }
+  async checkWhatsAppNumbers(numbers: string[]): Promise<CheckNumberResult[]> {
+    return this.request("verificar números de WhatsApp", "POST", `/chat/whatsappNumbers/${this.instance}`, { numbers });
   }
 
-  // Marcar mensagem como lida
-  async markMessageAsRead(messageId: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/chat/markMessageAsRead/${this.instanceId}`, {
-        messageId
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao marcar mensagem como lida:", error);
-      throw error;
-    }
+  async markMessageAsRead(readMessages: MessageKey[]): Promise<unknown> {
+    return this.request("marcar mensagem como lida", "POST", `/chat/markMessageAsRead/${this.instance}`, { readMessages });
   }
 
-  // Arquivar chat
-  async archiveChat(number: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/chat/archiveChat/${this.instanceId}`, {
-        phone: number,
-        action: "archive" // ou "unarchive"
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao arquivar chat:", error);
-      throw error;
-    }
+  // `chat` aceita número ou JID; a Evolution usa a última mensagem do chat para arquivar
+  async archiveChat(chat: string, archive: boolean): Promise<unknown> {
+    return this.request("arquivar chat", "POST", `/chat/archiveChat/${this.instance}`, { chat, archive });
   }
 
-  // Excluir mensagem para todos
-  async deleteMessageForEveryone(messageId: string): Promise<any> {
-    try {
-      const response = await apiClient.delete(`/chat/deleteMessageForEveryone/${this.instanceId}/${messageId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao excluir mensagem para todos:", error);
-      throw error;
-    }
+  async deleteMessageForEveryone(key: MessageKey & { participant?: string }): Promise<unknown> {
+    return this.request("excluir mensagem para todos", "DELETE", `/chat/deleteMessageForEveryone/${this.instance}`, key);
   }
 
-  // Definir presença no chat
-  async sendPresence(presence: string, chatJid: string): Promise<any> {
-    try {
-      const response = await apiClient.post(`/chat/presence/${this.instanceId}`, {
-        presence,
-        chatJid
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao definir presença no chat:", error);
-      throw error;
-    }
+  async sendPresence(number: string, presence: Presence, delay: number): Promise<unknown> {
+    return this.request("definir presença no chat", "POST", `/chat/sendPresence/${this.instance}`, { number, presence, delay });
   }
 
-  // Buscar foto de perfil
-  async fetchProfilePictureUrl(number: string): Promise<any> {
-    try {
-      const response = await apiClient.post(`/chat/fetchProfilePictureUrl/${this.instanceId}`, {
-        number
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar foto de perfil:", error);
-      throw error;
-    }
+  async fetchProfilePictureUrl(number: string): Promise<{ wuid: string; profilePictureUrl: string | null }> {
+    return this.request("buscar foto de perfil", "POST", `/chat/fetchProfilePictureUrl/${this.instance}`, { number });
   }
 
-  // Buscar contatos
-  async fetchContacts(): Promise<{ data: Contact[] }> {
-    try {
-      const response = await apiClient.post<{ data: Contact[] }>(`/chat/contacts/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar contatos:", error);
-      throw error;
-    }
+  async fetchContacts(where: Record<string, string> = {}): Promise<Contact[]> {
+    return this.request("buscar contatos", "POST", `/chat/findContacts/${this.instance}`, { where });
   }
 
-  // Buscar mensagens
-  async findMessages(query: string, chatId?: string): Promise<any> {
-    try {
-      const response = await apiClient.post(`/chat/findMessages/${this.instanceId}`, {
-        query,
-        chatId
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar mensagens:", error);
-      throw error;
-    }
+  async findMessages(where: Record<string, unknown> = {}, limit?: number): Promise<unknown> {
+    return this.request("buscar mensagens", "POST", `/chat/findMessages/${this.instance}`, { where, limit });
   }
 
-  // Buscar mensagens de status
-  async findStatusMessages(): Promise<any> {
-    try {
-      const response = await apiClient.post(`/chat/findStatusMessages/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar mensagens de status:", error);
-      throw error;
-    }
+  async findStatusMessages(where: Record<string, unknown> = {}, limit?: number): Promise<unknown> {
+    return this.request("buscar mensagens de status", "POST", `/chat/findStatusMessage/${this.instance}`, { where, limit });
   }
 
-  // Atualizar mensagem
-  async updateMessage(messageId: string, text: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/chat/updateMessage/${this.instanceId}`, {
-        messageId,
-        text
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar mensagem:", error);
-      throw error;
-    }
+  async updateMessage(number: string, key: MessageKey, text: string): Promise<unknown> {
+    return this.request("atualizar mensagem", "POST", `/chat/updateMessage/${this.instance}`, { number, key, text });
   }
 
-  // Buscar conversas
-  async fetchChats(): Promise<{ data: Chat[] }> {
-    try {
-      const response = await apiClient.get<{ data: Chat[] }>(`/chat/findChats/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar conversas:", error);
-      throw error;
-    }
+  async fetchChats(where: Record<string, string> = {}): Promise<Chat[]> {
+    return this.request("buscar conversas", "POST", `/chat/findChats/${this.instance}`, { where });
   }
 
-  // ===== CONFIGURAÇÕES DE PERFIL =====
+  // ===== PERFIL (rotas /chat na v2) =====
 
-  // Buscar perfil de negócios
-  async fetchBusinessProfile(): Promise<any> {
-    try {
-      const response = await apiClient.post(`/profile/fetchBusinessProfile/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar perfil de negócios:", error);
-      throw error;
-    }
+  async fetchBusinessProfile(number: string): Promise<unknown> {
+    return this.request("buscar perfil de negócios", "POST", `/chat/fetchBusinessProfile/${this.instance}`, { number });
   }
 
-  // Buscar perfil
-  async fetchProfile(): Promise<ProfileInfo> {
-    try {
-      const response = await apiClient.post<ProfileInfo>(`/profile/fetchProfile/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar perfil:", error);
-      throw error;
-    }
+  async fetchProfile(number: string): Promise<ProfileInfo> {
+    return this.request("buscar perfil", "POST", `/chat/fetchProfile/${this.instance}`, { number });
   }
 
-  // Atualizar nome do perfil
-  async updateProfileName(name: string): Promise<any> {
-    try {
-      const response = await apiClient.post(`/profile/updateProfileName/${this.instanceId}`, {
-        name
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar nome do perfil:", error);
-      throw error;
-    }
+  async updateProfileName(name: string): Promise<unknown> {
+    return this.request("atualizar nome do perfil", "POST", `/chat/updateProfileName/${this.instance}`, { name });
   }
 
-  // Atualizar status do perfil
-  async updateProfileStatus(status: string): Promise<any> {
-    try {
-      const response = await apiClient.post(`/profile/updateProfileStatus/${this.instanceId}`, {
-        status
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar status do perfil:", error);
-      throw error;
-    }
+  async updateProfileStatus(status: string): Promise<unknown> {
+    return this.request("atualizar status do perfil", "POST", `/chat/updateProfileStatus/${this.instance}`, { status });
   }
 
-  // Atualizar foto do perfil
-  async updateProfilePicture(url: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/profile/updateProfilePicture/${this.instanceId}`, {
-        url
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar foto do perfil:", error);
-      throw error;
-    }
+  async updateProfilePicture(picture: string): Promise<unknown> {
+    return this.request("atualizar foto do perfil", "POST", `/chat/updateProfilePicture/${this.instance}`, { picture });
   }
 
-  // Remover foto do perfil
-  async removeProfilePicture(): Promise<any> {
-    try {
-      const response = await apiClient.delete(`/profile/removeProfilePicture/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao remover foto do perfil:", error);
-      throw error;
-    }
+  async removeProfilePicture(): Promise<unknown> {
+    return this.request("remover foto do perfil", "DELETE", `/chat/removeProfilePicture/${this.instance}`);
   }
 
-  // Buscar configurações de privacidade
   async fetchPrivacySettings(): Promise<PrivacySettings> {
-    try {
-      const response = await apiClient.get<PrivacySettings>(`/profile/fetchPrivacySettings/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar configurações de privacidade:", error);
-      throw error;
-    }
+    return this.request("buscar configurações de privacidade", "GET", `/chat/fetchPrivacySettings/${this.instance}`);
   }
 
-  // Atualizar configurações de privacidade
-  async updatePrivacySettings(settings: Partial<PrivacySettings>): Promise<any> {
-    try {
-      const response = await apiClient.put(`/profile/updatePrivacySettings/${this.instanceId}`, settings);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar configurações de privacidade:", error);
-      throw error;
-    }
+  async updatePrivacySettings(settings: PrivacySettings): Promise<unknown> {
+    return this.request("atualizar configurações de privacidade", "POST", `/chat/updatePrivacySettings/${this.instance}`, settings);
   }
 
   // ===== GERENCIAMENTO DE GRUPOS =====
+  // A Evolution aceita o groupJid na query string em todas as rotas de grupo
 
-  // Criar grupo
-  async createGroup(data: CreateGroupRequest): Promise<any> {
-    try {
-      const response = await apiClient.post(`/group/create/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao criar grupo:", error);
-      throw error;
-    }
+  async createGroup(data: CreateGroupRequest): Promise<GroupInfo> {
+    return this.request("criar grupo", "POST", `/group/create/${this.instance}`, data);
   }
 
-  // Atualizar foto do grupo
-  async updateGroupPicture(groupId: string, url: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/updateGroupPicture/${this.instanceId}`, {
-        groupId,
-        url
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar foto do grupo:", error);
-      throw error;
-    }
+  async updateGroupPicture(groupJid: string, image: string): Promise<unknown> {
+    return this.request("atualizar foto do grupo", "POST", `/group/updateGroupPicture/${this.instance}`, { image }, { groupJid });
   }
 
-  // Atualizar assunto do grupo
-  async updateGroupSubject(groupId: string, subject: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/updateGroupSubject/${this.instanceId}`, {
-        groupId,
-        subject
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar assunto do grupo:", error);
-      throw error;
-    }
+  async updateGroupSubject(groupJid: string, subject: string): Promise<unknown> {
+    return this.request("atualizar assunto do grupo", "POST", `/group/updateGroupSubject/${this.instance}`, { subject }, { groupJid });
   }
 
-  // Atualizar descrição do grupo
-  async updateGroupDescription(groupId: string, description: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/updateGroupDescription/${this.instanceId}`, {
-        groupId,
-        description
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar descrição do grupo:", error);
-      throw error;
-    }
+  async updateGroupDescription(groupJid: string, description: string): Promise<unknown> {
+    return this.request("atualizar descrição do grupo", "POST", `/group/updateGroupDescription/${this.instance}`, { description }, { groupJid });
   }
 
-  // Buscar código de convite
-  async fetchInviteCode(groupId: string): Promise<any> {
-    try {
-      const response = await apiClient.get(`/group/fetchInviteCode/${this.instanceId}/${groupId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar código de convite:", error);
-      throw error;
-    }
+  async fetchInviteCode(groupJid: string): Promise<{ inviteUrl: string; inviteCode: string }> {
+    return this.request("buscar código de convite", "GET", `/group/inviteCode/${this.instance}`, undefined, { groupJid });
   }
 
-  // Aceitar código de convite
-  async acceptInviteCode(code: string): Promise<any> {
-    try {
-      const response = await apiClient.get(`/group/acceptInviteCode/${this.instanceId}/${code}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao aceitar código de convite:", error);
-      throw error;
-    }
+  async acceptInviteCode(inviteCode: string): Promise<unknown> {
+    return this.request("aceitar código de convite", "GET", `/group/acceptInviteCode/${this.instance}`, undefined, { inviteCode });
   }
 
-  // Revogar código de convite
-  async revokeInviteCode(groupId: string): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/revokeInviteCode/${this.instanceId}/${groupId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao revogar código de convite:", error);
-      throw error;
-    }
+  async revokeInviteCode(groupJid: string): Promise<unknown> {
+    return this.request("revogar código de convite", "POST", `/group/revokeInviteCode/${this.instance}`, undefined, { groupJid });
   }
 
-  // Enviar convite de grupo
-  async sendGroupInvite(groupId: string, numbers: string[]): Promise<any> {
-    try {
-      const response = await apiClient.post(`/group/sendGroupInvite/${this.instanceId}`, {
-        groupId,
-        numbers
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao enviar convite de grupo:", error);
-      throw error;
-    }
+  async sendGroupInvite(groupJid: string, numbers: string[], description: string): Promise<unknown> {
+    return this.request("enviar convite de grupo", "POST", `/group/sendInvite/${this.instance}`, { groupJid, numbers, description });
   }
 
-  // Buscar grupo por código de convite
-  async findGroupByInviteCode(code: string): Promise<any> {
-    try {
-      const response = await apiClient.get(`/group/findGroupByInviteCode/${this.instanceId}/${code}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar grupo por código de convite:", error);
-      throw error;
-    }
+  async findGroupByInviteCode(inviteCode: string): Promise<GroupInfo> {
+    return this.request("buscar grupo por código de convite", "GET", `/group/inviteInfo/${this.instance}`, undefined, { inviteCode });
   }
 
-  // Buscar grupo por JID
-  async findGroupByJid(groupId: string): Promise<GroupInfo> {
-    try {
-      const response = await apiClient.get<GroupInfo>(`/group/findGroupByJid/${this.instanceId}/${groupId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar grupo por JID:", error);
-      throw error;
-    }
+  async findGroupByJid(groupJid: string): Promise<GroupInfo> {
+    return this.request("buscar grupo por JID", "GET", `/group/findGroupInfos/${this.instance}`, undefined, { groupJid });
   }
 
-  // Buscar todos os grupos
-  async fetchAllGroups(): Promise<{ data: GroupInfo[] }> {
-    try {
-      const response = await apiClient.get<{ data: GroupInfo[] }>(`/group/fetchAllGroups/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar todos os grupos:", error);
-      throw error;
-    }
+  async fetchAllGroups(getParticipants = false): Promise<GroupInfo[]> {
+    return this.request("buscar todos os grupos", "GET", `/group/fetchAllGroups/${this.instance}`, undefined, {
+      getParticipants: String(getParticipants)
+    });
   }
 
-  // Buscar membros do grupo
-  async findGroupMembers(groupId: string): Promise<any> {
-    try {
-      const response = await apiClient.get(`/group/findGroupMembers/${this.instanceId}/${groupId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar membros do grupo:", error);
-      throw error;
-    }
+  async findGroupMembers(groupJid: string): Promise<{ participants: unknown[] }> {
+    return this.request("buscar membros do grupo", "GET", `/group/participants/${this.instance}`, undefined, { groupJid });
   }
 
-  // Atualizar membros do grupo
-  async updateGroupMembers(data: GroupUpdateRequest): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/updateGroupMembers/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar membros do grupo:", error);
-      throw error;
-    }
+  async updateGroupMembers({ groupJid, action, participants }: GroupUpdateParticipantsRequest): Promise<unknown> {
+    return this.request("atualizar membros do grupo", "POST", `/group/updateParticipant/${this.instance}`, { action, participants }, { groupJid });
   }
 
-  // Atualizar configuração do grupo
-  async updateGroupSetting(data: GroupSettingRequest): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/updateGroupSetting/${this.instanceId}`, data);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao atualizar configuração do grupo:", error);
-      throw error;
-    }
+  async updateGroupSetting({ groupJid, action }: GroupSettingRequest): Promise<unknown> {
+    return this.request("atualizar configuração do grupo", "POST", `/group/updateSetting/${this.instance}`, { action }, { groupJid });
   }
 
-  // Alternar mensagens efêmeras
-  async toggleEphemeral(groupId: string, expiration: number): Promise<any> {
-    try {
-      const response = await apiClient.put(`/group/toggleEphemeral/${this.instanceId}`, {
-        groupId,
-        expiration // 0, 86400, 604800, 7776000
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao alternar mensagens efêmeras:", error);
-      throw error;
-    }
+  async toggleEphemeral(groupJid: string, expiration: EphemeralExpiration): Promise<unknown> {
+    return this.request("alternar mensagens efêmeras", "POST", `/group/toggleEphemeral/${this.instance}`, { expiration }, { groupJid });
   }
 
-  // Sair do grupo
-  async leaveGroup(groupId: string): Promise<any> {
-    try {
-      const response = await apiClient.delete(`/group/leaveGroup/${this.instanceId}/${groupId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao sair do grupo:", error);
-      throw error;
-    }
+  async leaveGroup(groupJid: string): Promise<unknown> {
+    return this.request("sair do grupo", "DELETE", `/group/leaveGroup/${this.instance}`, undefined, { groupJid });
   }
 
   // ===== TYPEBOT =====
 
-  // Configurar Typebot
-  async setTypebot(config: TypebotConfig): Promise<any> {
-    try {
-      const response = await apiClient.post(`/typebot/set/${this.instanceId}`, config);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao configurar Typebot:", error);
-      throw error;
-    }
+  async createTypebot(typebotConfig: TypebotConfig): Promise<unknown> {
+    return this.request("criar Typebot", "POST", `/typebot/create/${this.instance}`, typebotConfig);
   }
 
-  // Iniciar Typebot
-  async startTypebot(number: string): Promise<any> {
-    try {
-      const response = await apiClient.post(`/typebot/start/${this.instanceId}`, {
-        number
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao iniciar Typebot:", error);
-      throw error;
-    }
+  async findTypebots(): Promise<unknown> {
+    return this.request("buscar Typebots", "GET", `/typebot/find/${this.instance}`);
   }
 
-  // Buscar configuração do Typebot
-  async findTypebot(): Promise<TypebotConfig> {
-    try {
-      const response = await apiClient.get<TypebotConfig>(`/typebot/find/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar configuração do Typebot:", error);
-      throw error;
-    }
+  async startTypebot(data: TypebotStartRequest): Promise<unknown> {
+    return this.request("iniciar Typebot", "POST", `/typebot/start/${this.instance}`, data);
   }
 
-  // Alterar status do Typebot
-  async changeTypebotStatus(enabled: boolean): Promise<any> {
-    try {
-      const response = await apiClient.post(`/typebot/changeStatus/${this.instanceId}`, {
-        enabled
-      });
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao alterar status do Typebot:", error);
-      throw error;
-    }
+  async changeTypebotStatus(remoteJid: string, status: TypebotSessionStatus): Promise<unknown> {
+    return this.request("alterar status do Typebot", "POST", `/typebot/changeStatus/${this.instance}`, { remoteJid, status });
   }
 
   // ===== CHATWOOT =====
 
-  // Configurar Chatwoot
-  async setChatwoot(config: ChatwootConfig): Promise<any> {
-    try {
-      const response = await apiClient.post(`/chatwoot/set/${this.instanceId}`, config);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao configurar Chatwoot:", error);
-      throw error;
-    }
+  async setChatwoot(chatwootConfig: ChatwootConfig): Promise<unknown> {
+    return this.request("configurar Chatwoot", "POST", `/chatwoot/set/${this.instance}`, chatwootConfig);
   }
 
-  // Buscar configuração do Chatwoot
   async findChatwoot(): Promise<ChatwootConfig> {
-    try {
-      const response = await apiClient.get<ChatwootConfig>(`/chatwoot/find/${this.instanceId}`);
-      return response.data;
-    } catch (error) {
-      console.error("Erro ao buscar configuração do Chatwoot:", error);
-      throw error;
-    }
+    return this.request("buscar configuração do Chatwoot", "GET", `/chatwoot/find/${this.instance}`);
   }
-} 
+}
