@@ -197,13 +197,13 @@ O servidor MCP expõe as seguintes ferramentas que podem ser chamadas pelo clien
 - `restartInstance`: Reinicia a instância
 
 ### Mensagens
-- `sendTextMessage`: Envia uma mensagem de texto
-- `sendMedia`: Envia mídia (imagem, documento, vídeo, áudio)
-- `sendAudio`: Envia áudio/mensagem de voz
-- `sendSticker`: Envia um sticker
-- `sendLocation`: Envia uma localização
-- `sendContact`: Envia um contato
-- `sendPoll`: Envia uma enquete
+- `postTextMessage`: Envia uma mensagem de texto
+- `postMedia`: Envia mídia (imagem, documento, vídeo, áudio)
+- `postAudio`: Envia áudio/mensagem de voz
+- `postSticker`: Envia um sticker
+- `postLocation`: Envia uma localização
+- `postContact`: Envia um contato
+- `postPoll`: Envia uma enquete
 
 ### Controle de Chat
 - `listChats`: Lista as conversas com a última mensagem; `onlyAwaitingReply` mostra só as que aguardam resposta
@@ -224,7 +224,7 @@ O MCP não envia notificações, então a mensagem nova chega por webhook da Evo
 
 1. Configure o webhook da instância (evento `MESSAGES_UPSERT`) apontando para o seu fluxo (ex.: nó Webhook do n8n).
 2. Ignore mensagens com `data.key.fromMe = true`, senão o agente responde às próprias mensagens em loop.
-3. Passe para o agente o `data.key.remoteJid` e o texto recebido. Com as tools do MCP ele usa `getChatMessages` para ler o contexto, `sendTextMessage` (destinatário = `remoteJid`) para responder e `markChatAsRead` para marcar como lida.
+3. Passe para o agente o `data.key.remoteJid` e o texto recebido. Com as tools do MCP ele usa `getChatMessages` para ler o contexto, `postTextMessage` (destinatário = `remoteJid`) para responder e `markChatAsRead` para marcar como lida.
 
 Para uma varredura periódica, use `listChats` com `onlyAwaitingReply: true`.
 
@@ -260,14 +260,14 @@ const status = await client.callTool("getApiStatus", {});
 console.log(status.content[0].text);
 
 // Enviar uma mensagem
-const msgResult = await client.callTool("sendTextMessage", {
+const msgResult = await client.callTool("postTextMessage", {
   number: "5511999999999",
   text: "Olá, esta é uma mensagem de teste!"
 });
 console.log(msgResult.content[0].text);
 
 // Enviar uma mídia
-const mediaResult = await client.callTool("sendMedia", {
+const mediaResult = await client.callTool("postMedia", {
   number: "5511999999999",
   url: "https://exemplo.com/imagem.jpg",
   caption: "Veja esta imagem!",

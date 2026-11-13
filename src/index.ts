@@ -160,7 +160,7 @@ export function createMcpServer(): McpServer {
   // ===== FERRAMENTAS PARA MENSAGENS =====
 
   // Adiciona ferramenta para enviar mensagem de texto
-  server.tool("sendTextMessage",
+  server.tool("postTextMessage",
     "Envia uma mensagem de texto. Para responder uma conversa, use o remoteJid dela como destinatário; para citar uma mensagem, informe options.quotedMessageId.",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
@@ -196,7 +196,7 @@ export function createMcpServer(): McpServer {
   );
 
   // Adiciona ferramenta para enviar mídia
-  server.tool("sendMedia",
+  server.tool("postMedia",
     "Envia imagem, vídeo, documento ou áudio a partir de uma URL pública, com legenda opcional.",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
@@ -232,7 +232,7 @@ export function createMcpServer(): McpServer {
   );
 
   // Adiciona ferramenta para enviar mensagem de áudio
-  server.tool("sendAudio",
+  server.tool("postAudio",
     "Envia um áudio a partir de uma URL, como mensagem de voz (padrão) ou como arquivo.",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
@@ -266,7 +266,7 @@ export function createMcpServer(): McpServer {
   );
 
   // Adiciona ferramenta para enviar sticker
-  server.tool("sendSticker",
+  server.tool("postSticker",
     "Envia uma figurinha a partir da URL de uma imagem.",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
@@ -296,7 +296,7 @@ export function createMcpServer(): McpServer {
   );
 
   // Adiciona ferramenta para enviar localização
-  server.tool("sendLocation",
+  server.tool("postLocation",
     "Envia uma localização (latitude e longitude).",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
@@ -332,7 +332,7 @@ export function createMcpServer(): McpServer {
   );
 
   // Adiciona ferramenta para enviar contato
-  server.tool("sendContact",
+  server.tool("postContact",
     "Envia um cartão de contato.",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
@@ -364,7 +364,7 @@ export function createMcpServer(): McpServer {
   );
 
   // Adiciona ferramenta para enviar enquete
-  server.tool("sendPoll",
+  server.tool("postPoll",
     "Envia uma enquete.",
     { 
       number: z.string().min(1).describe(RECIPIENT_DESCRIPTION),
