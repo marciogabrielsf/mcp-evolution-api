@@ -8,8 +8,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Exibe informações sobre o MCP Server
-console.log(`
+// Exibe informações sobre o MCP Server (stderr, para não poluir o canal STDIO do MCP)
+console.error(`
 ╔════════════════════════════════════════════════════╗
 ║            MCP SERVER PARA EVOLUTION API           ║
 ╠════════════════════════════════════════════════════╣
